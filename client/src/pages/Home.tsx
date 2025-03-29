@@ -233,7 +233,9 @@ export default function Home() {
     });
     
     // Calculate total XP and per-character averages
-    const totalXp = characterXp.reduce((sum, char) => sum + char.adjustedXp, 0);
+    // Total XP is always monster hit dice * 100
+    const totalXp = totalMonsterHitDice * 100;
+    // Base XP per character is always total XP / number of characters
     const xpPerCharacter = totalXp / newCharacters.length;
     
     // Set state with all calculated values
