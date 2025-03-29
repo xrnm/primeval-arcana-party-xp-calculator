@@ -6,5 +6,5 @@ import { Component } from '@angular/core';
   styleUrls: ['./app.component.css']
 })
 export class AppComponent {
-  title = 'oDND XP Calculator';
+  title = 'Primeval Arcana Party XP Calculator';
 }
