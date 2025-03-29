@@ -1,29 +1,18 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import React, { useState, useEffect } from "react";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "../components/ui/form";
 import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { cva } from "class-variance-authority";
-import { useToast } from "@/hooks/use-toast";
+import { Badge } from "../components/ui/badge";
+import { Separator } from "../components/ui/separator";
+import { format } from "date-fns";
+import { useToast } from "../hooks/use-toast";
+import { Trash, Plus, Calculator, Save, List, RotateCcw, X } from "lucide-react";
 
-// Define the schema for character form
-const characterSchema = z.object({
-  hitDice: z.number().int().min(1, "Hit dice must be at least 1").max(30, "Hit dice must be at most 30"),
-  modifier: z.number().int().min(-5, "Modifier must be at least -5").max(10, "Modifier must be at most 10"),
-});
-
-// Define the schema for monster form
-const monsterSchema = z.object({
-  hitDice: z.number().int().min(1, "Hit dice must be at least 1").max(30, "Hit dice must be at most 30"),
-  modifier: z.number().int().min(-5, "Modifier must be at least -5").max(10, "Modifier must be at most 10"),
-  count: z.number().int().min(1, "Count must be at least 1").max(100, "Count must be at most 100"),
-});
-
+// Types for our application
 type Character = {
   id: number;
   hitDice: number;
@@ -46,6 +35,12 @@ type CalculationResult = {
   xpPerCharacter: number;
   averagePartyLevel: number;
   adjustmentFactor: number;
+  characterXp: {
+    characterId: number;
+    effectiveHitDice: number;
+    adjustmentFactor: number;
+    adjustedXp: number;
+  }[];
 };
 
 type SavedCalculation = {
@@ -56,528 +51,664 @@ type SavedCalculation = {
   result: CalculationResult;
 };
 
-// Constants
-const BASE_XP_PER_HD = 100;
-const MODIFIER_FACTOR = 0.25;
-const STORAGE_KEY = 'odnd-xp-calculations';
+// Schemas for form validation
+const characterSchema = z.object({
+  hitDice: z.number().min(1, "Hit dice must be at least 1"),
+  modifier: z.number(),
+});
+
+const monsterSchema = z.object({
+  hitDice: z.number().min(1, "Hit dice must be at least 1"),
+  modifier: z.number(),
+  count: z.number().min(1, "Count must be at least 1"),
+});
+
+const calculatorSchema = z.object({
+  characters: z.array(characterSchema).min(1, "Add at least one character"),
+  monsters: z.array(monsterSchema).min(1, "Add at least one monster"),
+});
+
+// Helper functions
+const calculateEffectiveHitDice = (hitDice: number, modifier: number): number => {
+  return hitDice + modifier * 0.25;
+};
+
+const calculateTotalXp = (monsters: Monster[]): number => {
+  return monsters.reduce((total, monster) => {
+    return total + monster.effectiveHitDice * monster.count * 100;
+  }, 0);
+};
+
+const calculateAdjustmentFactor = (characterHD: number, monsterHD: number): number => {
+  if (characterHD <= monsterHD) {
+    return 1.0; // Character gets 100% of XP if their HD is less than or equal to monster HD
+  }
+  return monsterHD / characterHD; // Reduced XP based on ratio
+};
+
+// Helper to format hit dice display with modifier
+const formatHitDice = (hitDice: number, modifier: number): string => {
+  if (modifier > 0) {
+    return `${hitDice}+${modifier}`;
+  } else if (modifier < 0) {
+    return `${hitDice}${modifier}`;
+  } else {
+    return `${hitDice}`;
+  }
+};
 
 export default function Home() {
-  const { toast } = useToast();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [monsters, setMonsters] = useState<Monster[]>([]);
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [savedCalculations, setSavedCalculations] = useState<SavedCalculation[]>([]);
-  const [showSavedCalculations, setShowSavedCalculations] = useState(false);
-
-  // Create character form
-  const characterForm = useForm<z.infer<typeof characterSchema>>({
-    resolver: zodResolver(characterSchema),
-    defaultValues: {
-      hitDice: 1,
-      modifier: 0,
-    },
-  });
-
-  // Create monster form
-  const monsterForm = useForm<z.infer<typeof monsterSchema>>({
-    resolver: zodResolver(monsterSchema),
-    defaultValues: {
-      hitDice: 1,
-      modifier: 0,
-      count: 1,
-    },
-  });
-
-  // Helper function to calculate effective hit dice (including modifiers)
-  const calculateEffectiveHitDice = (hitDice: number, modifier: number): number => {
-    return hitDice + (modifier * MODIFIER_FACTOR);
-  };
-
-  // Helper function to calculate level adjustment based on party vs monster level
-  const calculateAdjustmentFactor = (partyLevel: number, monsterLevel: number): number => {
-    const ratio = monsterLevel / partyLevel;
-    
-    if (ratio >= 1) {
-      return 1; // Fighting equal or stronger monsters gives full XP
-    } else if (ratio >= 0.75) {
-      return 0.8; // Fighting somewhat weaker monsters
-    } else if (ratio >= 0.5) {
-      return 0.5; // Fighting much weaker monsters
-    } else {
-      return 0.25; // Fighting very weak monsters
-    }
-  };
-
-  // Load saved calculations from localStorage
+  const [showSaved, setShowSaved] = useState(false);
+  const { toast } = useToast();
+  
+  // Load saved calculations on component mount
   useEffect(() => {
-    const loadSavedCalculations = () => {
+    const saved = localStorage.getItem("odnd-xp-calculations");
+    if (saved) {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const parsedData = JSON.parse(saved);
-          
-          // Convert string dates back to Date objects
-          const formattedData = parsedData.map((calc: any) => ({
-            ...calc,
-            date: new Date(calc.date)
-          }));
-          
-          setSavedCalculations(formattedData);
-        }
+        const parsed = JSON.parse(saved);
+        // Convert string dates to Date objects
+        const calculations: SavedCalculation[] = parsed.map((calc: any) => ({
+          ...calc,
+          date: new Date(calc.date),
+        }));
+        setSavedCalculations(calculations);
       } catch (error) {
-        console.error('Error loading saved calculations', error);
+        console.error("Failed to parse saved calculations", error);
       }
-    };
-
-    loadSavedCalculations();
+    }
   }, []);
 
-  // Handle character form submission
-  const onCharacterSubmit = (data: z.infer<typeof characterSchema>) => {
-    const newId = characters.length > 0 ? Math.max(...characters.map(c => c.id)) + 1 : 1;
-    const effectiveHD = calculateEffectiveHitDice(data.hitDice, data.modifier);
+  // Setup form
+  const form = useForm<z.infer<typeof calculatorSchema>>({
+    resolver: zodResolver(calculatorSchema),
+    defaultValues: {
+      characters: [{ hitDice: 1, modifier: 0 }],
+      monsters: [{ hitDice: 1, modifier: 0, count: 1 }],
+    },
+  });
+
+  const onSubmit = (data: z.infer<typeof calculatorSchema>) => {
+    // Reset previous state
+    setCharacters([]);
+    setMonsters([]);
+    setResult(null);
     
-    const newCharacter: Character = {
-      id: newId,
-      hitDice: data.hitDice,
-      modifier: data.modifier,
-      effectiveHitDice: effectiveHD
-    };
-    
-    setCharacters([...characters, newCharacter]);
-    characterForm.reset();
-    
-    toast({
-      title: "Character Added",
-      description: `Hit Dice: ${data.hitDice}${data.modifier >= 0 ? '+' : ''}${data.modifier} (Effective: ${effectiveHD.toFixed(2)})`,
+    // Process characters
+    const newCharacters = data.characters.map((char, index) => {
+      const effectiveHD = calculateEffectiveHitDice(char.hitDice, char.modifier);
+      return {
+        id: index + 1,
+        hitDice: char.hitDice,
+        modifier: char.modifier,
+        effectiveHitDice: effectiveHD,
+      };
     });
-  };
-
-  // Handle monster form submission
-  const onMonsterSubmit = (data: z.infer<typeof monsterSchema>) => {
-    const newId = monsters.length > 0 ? Math.max(...monsters.map(m => m.id)) + 1 : 1;
-    const effectiveHD = calculateEffectiveHitDice(data.hitDice, data.modifier);
     
-    const newMonster: Monster = {
-      id: newId,
-      hitDice: data.hitDice,
-      modifier: data.modifier,
-      count: data.count,
-      effectiveHitDice: effectiveHD
-    };
-    
-    setMonsters([...monsters, newMonster]);
-    monsterForm.reset({ hitDice: 1, modifier: 0, count: 1 });
-    
-    toast({
-      title: "Monster Added",
-      description: `${data.count}× HD: ${data.hitDice}${data.modifier >= 0 ? '+' : ''}${data.modifier} (Effective: ${effectiveHD.toFixed(2)})`,
+    // Process monsters
+    const newMonsters = data.monsters.map((monster, index) => {
+      const effectiveHD = calculateEffectiveHitDice(monster.hitDice, monster.modifier);
+      return {
+        id: index + 1,
+        hitDice: monster.hitDice,
+        modifier: monster.modifier,
+        count: monster.count,
+        effectiveHitDice: effectiveHD,
+      };
     });
-  };
-
-  // Calculate XP
-  const calculateXp = () => {
-    if (characters.length === 0 || monsters.length === 0) {
-      toast({
-        title: "Cannot Calculate",
-        description: "You need at least one character and one monster.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Calculate total effective hit dice for all characters
-    const totalPartyHitDice = characters.reduce(
-      (total, char) => total + char.effectiveHitDice, 
+    
+    // Calculate party stats
+    const totalPartyHitDice = newCharacters.reduce((total, char) => total + char.effectiveHitDice, 0);
+    const averagePartyLevel = totalPartyHitDice / newCharacters.length;
+    
+    // Calculate monster stats
+    const totalMonsterCount = newMonsters.reduce((total, monster) => total + monster.count, 0);
+    const totalMonsterHitDice = newMonsters.reduce(
+      (total, monster) => total + monster.effectiveHitDice * monster.count, 
       0
     );
-    
-    // Calculate average party level (used for adjustment factor)
-    const averagePartyLevel = totalPartyHitDice / characters.length;
-    
-    // Calculate total effective hit dice for all monsters (including counts)
-    const totalMonsterHitDice = monsters.reduce(
-      (total, monster) => total + (monster.effectiveHitDice * monster.count), 
-      0
-    );
-    
-    // Calculate the level adjustment factor
-    const adjustmentFactor = calculateAdjustmentFactor(
-      averagePartyLevel, 
-      totalMonsterHitDice / monsters.reduce((total, m) => total + m.count, 0)
-    );
+    const averageMonsterLevel = totalMonsterCount > 0 
+      ? totalMonsterHitDice / totalMonsterCount 
+      : 0;
     
     // Calculate total XP
-    const totalXp = Math.floor(totalMonsterHitDice * BASE_XP_PER_HD * adjustmentFactor);
+    const totalXp = calculateTotalXp(newMonsters);
+    const xpPerCharacter = totalXp / newCharacters.length;
     
-    // Calculate XP per character
-    const xpPerCharacter = Math.floor(totalXp / characters.length);
+    // Calculate the overall adjustment factor
+    const overallAdjustmentFactor = calculateAdjustmentFactor(averagePartyLevel, averageMonsterLevel);
     
-    // Set the result
-    const newResult: CalculationResult = {
+    // Calculate per-character adjusted XP
+    const characterXp = newCharacters.map(char => {
+      // Calculate adjustment factors for each monster type
+      let totalAdjustedXp = 0;
+      
+      newMonsters.forEach(monster => {
+        // Calculate the XP contribution of this monster type
+        const monsterXpContribution = monster.effectiveHitDice * monster.count * 100 / newCharacters.length;
+        
+        // Calculate the adjustment factor for this character vs this monster
+        const adjustmentFactor = calculateAdjustmentFactor(char.effectiveHitDice, monster.effectiveHitDice);
+        
+        // Add the adjusted XP from this monster type
+        totalAdjustedXp += monsterXpContribution * adjustmentFactor;
+      });
+      
+      // Calculate the overall adjustment factor by comparing total adjusted XP to base share
+      const overallAdjustmentFactor = totalAdjustedXp / xpPerCharacter;
+      
+      return {
+        characterId: char.id,
+        effectiveHitDice: char.effectiveHitDice,
+        adjustmentFactor: overallAdjustmentFactor,
+        adjustedXp: totalAdjustedXp,
+      };
+    });
+    
+    // Set state with all calculated values
+    setCharacters(newCharacters);
+    setMonsters(newMonsters);
+    setResult({
       totalPartyHitDice,
       totalMonsterHitDice,
       totalXp,
       xpPerCharacter,
       averagePartyLevel,
-      adjustmentFactor
-    };
-    
-    setResult(newResult);
+      adjustmentFactor: overallAdjustmentFactor,
+      characterXp,
+    });
     
     toast({
-      title: "XP Calculated",
-      description: `${xpPerCharacter} XP per character (${totalXp} total)`,
+      title: "Calculation Complete",
+      description: `Total XP: ${totalXp.toLocaleString()} XP`,
+      variant: "default",
     });
   };
 
-  // Save the current calculation
-  const saveCalculation = () => {
-    if (!result) return;
-    
-    const id = Date.now().toString();
-    const date = new Date();
-    
-    const newSavedCalculation: SavedCalculation = {
-      id,
-      date,
-      characters: [...characters],
-      monsters: [...monsters],
-      result: {...result}
-    };
-    
-    const updatedCalculations = [...savedCalculations, newSavedCalculation];
-    setSavedCalculations(updatedCalculations);
-    
-    // Save to localStorage
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedCalculations));
-      toast({
-        title: "Calculation Saved",
-        description: "Your calculation has been saved.",
-      });
-    } catch (error) {
-      console.error('Error saving calculation', error);
-      toast({
-        title: "Save Failed",
-        description: "There was an error saving your calculation.",
-        variant: "destructive",
-      });
+  const addCharacter = () => {
+    const characters = form.getValues("characters");
+    form.setValue("characters", [...characters, { hitDice: 1, modifier: 0 }]);
+  };
+
+  const removeCharacter = (index: number) => {
+    const characters = form.getValues("characters");
+    if (characters.length > 1) {
+      form.setValue(
+        "characters",
+        characters.filter((_, i) => i !== index)
+      );
     }
   };
 
-  // Load a saved calculation
-  const loadCalculation = (savedCalc: SavedCalculation) => {
-    setCharacters(savedCalc.characters);
-    setMonsters(savedCalc.monsters);
-    setResult(savedCalc.result);
-    
-    toast({
-      title: "Calculation Loaded",
-      description: `Loaded from ${formatDate(savedCalc.date)}`,
-    });
+  const addMonster = () => {
+    const monsters = form.getValues("monsters");
+    form.setValue("monsters", [...monsters, { hitDice: 1, modifier: 0, count: 1 }]);
   };
 
-  // Delete a saved calculation
-  const deleteCalculation = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    const updatedCalculations = savedCalculations.filter(calc => calc.id !== id);
-    setSavedCalculations(updatedCalculations);
-    
-    // Update localStorage
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedCalculations));
-      toast({
-        title: "Calculation Deleted",
-        description: "Your saved calculation has been deleted.",
-      });
-    } catch (error) {
-      console.error('Error deleting calculation', error);
+  const removeMonster = (index: number) => {
+    const monsters = form.getValues("monsters");
+    if (monsters.length > 1) {
+      form.setValue(
+        "monsters",
+        monsters.filter((_, i) => i !== index)
+      );
     }
   };
 
-  // Remove a character
-  const removeCharacter = (id: number) => {
-    setCharacters(characters.filter(char => char.id !== id));
-  };
-
-  // Remove a monster
-  const removeMonster = (id: number) => {
-    setMonsters(monsters.filter(monster => monster.id !== id));
-  };
-
-  // Reset the form
   const resetForm = () => {
+    form.reset({
+      characters: [{ hitDice: 1, modifier: 0 }],
+      monsters: [{ hitDice: 1, modifier: 0, count: 1 }],
+    });
     setCharacters([]);
     setMonsters([]);
     setResult(null);
-    characterForm.reset();
-    monsterForm.reset();
+    toast({
+      title: "Form Reset",
+      description: "Calculator has been reset to default values",
+    });
   };
 
-  // Toggle saved calculations
-  const toggleSavedCalculations = () => {
-    setShowSavedCalculations(!showSavedCalculations);
+  const saveCalculation = () => {
+    if (!result || characters.length === 0 || monsters.length === 0) {
+      toast({
+        title: "Nothing to Save",
+        description: "Calculate XP first before saving",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newSavedCalculation: SavedCalculation = {
+      id: Date.now().toString(),
+      date: new Date(),
+      characters,
+      monsters,
+      result,
+    };
+
+    const updatedSaved = [...savedCalculations, newSavedCalculation];
+    setSavedCalculations(updatedSaved);
+    localStorage.setItem("odnd-xp-calculations", JSON.stringify(updatedSaved));
+
+    toast({
+      title: "Calculation Saved",
+      description: "Your calculation has been saved",
+      variant: "default",
+    });
   };
 
-  // Format date for display
-  const formatDate = (date: Date | string): string => {
-    const d = new Date(date);
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+  const loadCalculation = (savedCalc: SavedCalculation) => {
+    // Convert saved data to form values
+    const characterFormValues = savedCalc.characters.map((char) => ({
+      hitDice: char.hitDice,
+      modifier: char.modifier,
+    }));
+
+    const monsterFormValues = savedCalc.monsters.map((monster) => ({
+      hitDice: monster.hitDice,
+      modifier: monster.modifier,
+      count: monster.count,
+    }));
+
+    // Reset form with saved values
+    form.reset({
+      characters: characterFormValues,
+      monsters: monsterFormValues,
+    });
+
+    // Restore calculation state
+    setCharacters(savedCalc.characters);
+    setMonsters(savedCalc.monsters);
+    setResult(savedCalc.result);
+
+    // Close saved calculations panel
+    setShowSaved(false);
+
+    toast({
+      title: "Calculation Loaded",
+      description: `Loaded calculation from ${format(savedCalc.date, "PPp")}`,
+    });
+  };
+
+  const deleteCalculation = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the load action
+    
+    const updatedSaved = savedCalculations.filter((calc) => calc.id !== id);
+    setSavedCalculations(updatedSaved);
+    localStorage.setItem("odnd-xp-calculations", JSON.stringify(updatedSaved));
+
+    toast({
+      title: "Calculation Deleted",
+      description: "The saved calculation has been deleted",
+    });
   };
 
   return (
-    <div className="min-h-screen bg-background px-4 py-6 md:py-12 flex flex-col items-center">
-      <div className="container max-w-5xl">
-        <header className="mb-8 text-center">
-          <h1 className="text-4xl font-bold mb-2">oDND XP Calculator</h1>
-          <p className="text-muted-foreground max-w-2xl mx-auto">
-            Calculate experience points for your oDND campaign based on hit dice with modifiers.
-            Each modifier counts as 25% of a hit die.
-          </p>
-        </header>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          {/* Character Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Characters</CardTitle>
-              <CardDescription>Add your party members here</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Form {...characterForm}>
-                <form onSubmit={characterForm.handleSubmit(onCharacterSubmit)} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField
-                      control={characterForm.control}
-                      name="hitDice"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Hit Dice</FormLabel>
-                          <FormControl>
-                            <Input type="number" min={1} {...field} 
-                              onChange={e => field.onChange(parseInt(e.target.value) || 1)} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={characterForm.control}
-                      name="modifier"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Modifier</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} 
-                              onChange={e => field.onChange(parseInt(e.target.value) || 0)} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full">Add Character</Button>
-                </form>
-              </Form>
-
-              {characters.length > 0 && (
-                <div className="mt-4">
-                  <h3 className="font-medium mb-2">Party ({characters.length})</h3>
-                  <div className="space-y-2">
-                    {characters.map(char => (
-                      <div key={char.id} className="flex justify-between items-center p-2 bg-muted rounded">
-                        <div>
-                          <Badge variant="outline">{char.id}</Badge>
-                          <span className="ml-2">
-                            HD: {char.hitDice}{char.modifier >= 0 ? '+' : ''}{char.modifier} 
-                            <span className="text-muted-foreground text-xs ml-1">
-                              (Effective: {char.effectiveHitDice.toFixed(2)})
-                            </span>
-                          </span>
-                        </div>
-                        <Button variant="ghost" size="sm" onClick={() => removeCharacter(char.id)}>
-                          ✕
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Monster Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Monsters</CardTitle>
-              <CardDescription>Add the monsters the party encounters</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Form {...monsterForm}>
-                <form onSubmit={monsterForm.handleSubmit(onMonsterSubmit)} className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4">
-                    <FormField
-                      control={monsterForm.control}
-                      name="hitDice"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Hit Dice</FormLabel>
-                          <FormControl>
-                            <Input type="number" min={1} {...field} 
-                              onChange={e => field.onChange(parseInt(e.target.value) || 1)} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={monsterForm.control}
-                      name="modifier"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Modifier</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} 
-                              onChange={e => field.onChange(parseInt(e.target.value) || 0)} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={monsterForm.control}
-                      name="count"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Count</FormLabel>
-                          <FormControl>
-                            <Input type="number" min={1} {...field} 
-                              onChange={e => field.onChange(parseInt(e.target.value) || 1)} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full">Add Monster</Button>
-                </form>
-              </Form>
-
-              {monsters.length > 0 && (
-                <div className="mt-4">
-                  <h3 className="font-medium mb-2">Monsters ({monsters.reduce((sum, m) => sum + m.count, 0)})</h3>
-                  <div className="space-y-2">
-                    {monsters.map(monster => (
-                      <div key={monster.id} className="flex justify-between items-center p-2 bg-muted rounded">
-                        <div>
-                          <Badge>{monster.count}×</Badge>
-                          <span className="ml-2">
-                            HD: {monster.hitDice}{monster.modifier >= 0 ? '+' : ''}{monster.modifier}
-                            <span className="text-muted-foreground text-xs ml-1">
-                              (Effective: {monster.effectiveHitDice.toFixed(2)})
-                            </span>
-                          </span>
-                        </div>
-                        <Button variant="ghost" size="sm" onClick={() => removeMonster(monster.id)}>
-                          ✕
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-4 mb-8 justify-center">
-          <Button onClick={calculateXp} disabled={characters.length === 0 || monsters.length === 0}>
-            Calculate XP
-          </Button>
-          <Button onClick={saveCalculation} disabled={!result} variant="outline">
-            Save
-          </Button>
-          <Button onClick={toggleSavedCalculations} variant="outline">
-            {showSavedCalculations ? 'Hide Saved' : 'Show Saved'}
-          </Button>
-          <Button onClick={resetForm} variant="destructive">
-            Reset
-          </Button>
-        </div>
-
-        {/* Results Section */}
-        {result && (
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Results</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium mb-1">Party Stats</p>
-                  <p>Total Characters: {characters.length}</p>
-                  <p>Total Party HD: {result.totalPartyHitDice.toFixed(2)}</p>
-                  <p>Average Party Level: {result.averagePartyLevel.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium mb-1">Monster Stats</p>
-                  <p>Total Monsters: {monsters.reduce((sum, m) => sum + m.count, 0)}</p>
-                  <p>Total Monster HD: {result.totalMonsterHitDice.toFixed(2)}</p>
-                  <p>Adjustment Factor: {result.adjustmentFactor.toFixed(2)}</p>
-                </div>
-              </div>
-
-              <Separator className="my-4" />
-
-              <div className="bg-muted rounded-lg p-4 text-center">
-                <p className="text-sm mb-2">XP Reward</p>
-                <p className="text-3xl font-bold">{result.xpPerCharacter} XP</p>
-                <p>per character ({result.totalXp} total)</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Saved Calculations */}
-        {showSavedCalculations && savedCalculations.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Saved Calculations</CardTitle>
-              <CardDescription>Click on a saved calculation to load it</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {savedCalculations.map(saved => (
-                  <div
-                    key={saved.id}
-                    className="flex justify-between items-center p-3 bg-muted rounded cursor-pointer hover:bg-muted/80"
-                    onClick={() => loadCalculation(saved)}
-                  >
-                    <div>
-                      <p className="font-medium">
-                        {saved.characters.length} Characters vs. {saved.monsters.reduce((sum, m) => sum + m.count, 0)} Monsters
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatDate(saved.date)} - {saved.result.xpPerCharacter} XP per character
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => deleteCalculation(saved.id, e)}
+    <div className="container mx-auto py-8 px-4">
+      <Card className="w-full max-w-4xl mx-auto">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-3xl">oDND XP Calculator</CardTitle>
+              <CardDescription>Calculate experience points based on character and monster hit dice</CardDescription>
+            </div>
+            <div className="flex space-x-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setShowSaved(!showSaved)}
+              >
+                {showSaved ? <X className="h-4 w-4 mr-2" /> : <List className="h-4 w-4 mr-2" />}
+                {showSaved ? "Close" : "Saved"}
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={resetForm}
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Reset
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        
+        <CardContent>
+          {showSaved ? (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Saved Calculations</h3>
+              {savedCalculations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No saved calculations yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {savedCalculations.map((calc) => (
+                    <Card 
+                      key={calc.id} 
+                      className="cursor-pointer hover:bg-secondary/50"
+                      onClick={() => loadCalculation(calc)}
                     >
-                      Delete
+                      <CardContent className="p-4">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="font-medium">{format(calc.date, "PPp")}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {calc.characters.length} characters vs. {calc.monsters.reduce((sum, m) => sum + m.count, 0)} monsters
+                            </p>
+                            <p className="text-sm font-medium">
+                              Total: {calc.result.totalXp.toLocaleString()} XP
+                            </p>
+                          </div>
+                          <Button 
+                            variant="destructive" 
+                            size="sm"
+                            onClick={(e) => deleteCalculation(calc.id, e)}
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                {/* Characters Section */}
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold">Characters</h3>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={addCharacter}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Character
                     </Button>
                   </div>
-                ))}
+                  
+                  <div className="space-y-4">
+                    {form.watch("characters").map((character, index) => (
+                      <Card key={index}>
+                        <CardContent className="p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`characters.${index}.hitDice`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Hit Dice</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                                      value={field.value}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
+                            <FormField
+                              control={form.control}
+                              name={`characters.${index}.modifier`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Modifier</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="number"
+                                      onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                      value={field.value}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
+                            <div className="flex items-end">
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => removeCharacter(index)}
+                                disabled={form.watch("characters").length <= 1}
+                                className="mb-1"
+                              >
+                                <Trash className="h-4 w-4 mr-2" />
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+                
+                <Separator />
+                
+                {/* Monsters Section */}
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold">Monsters</h3>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={addMonster}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Monster
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {form.watch("monsters").map((monster, index) => (
+                      <Card key={index}>
+                        <CardContent className="p-4">
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`monsters.${index}.hitDice`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Hit Dice</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                                      value={field.value}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
+                            <FormField
+                              control={form.control}
+                              name={`monsters.${index}.modifier`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Modifier</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="number"
+                                      onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                      value={field.value}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
+                            <FormField
+                              control={form.control}
+                              name={`monsters.${index}.count`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Count</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                                      value={field.value}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
+                            <div className="flex items-end">
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => removeMonster(index)}
+                                disabled={form.watch("monsters").length <= 1}
+                                className="mb-1"
+                              >
+                                <Trash className="h-4 w-4 mr-2" />
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+                
+                <div className="flex justify-end gap-4">
+                  <Button 
+                    type="submit" 
+                    className="w-full sm:w-auto"
+                  >
+                    <Calculator className="h-4 w-4 mr-2" />
+                    Calculate XP
+                  </Button>
+                  
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    className="w-full sm:w-auto"
+                    onClick={saveCalculation}
+                    disabled={!result}
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Save
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          )}
+          
+          {/* Results Section */}
+          {result && !showSaved && (
+            <div className="mt-8">
+              <h3 className="text-lg font-semibold mb-4">Results</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xl">Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Party Hit Dice:</span>
+                        <span className="font-medium">{result.totalPartyHitDice.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Monster Hit Dice:</span>
+                        <span className="font-medium">{result.totalMonsterHitDice.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Average Party Level:</span>
+                        <span className="font-medium">{result.averagePartyLevel.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Overall Adjustment Factor:</span>
+                        <span className="font-medium">{result.adjustmentFactor.toFixed(2)}</span>
+                      </div>
+                      <Separator className="my-2" />
+                      <div className="flex justify-between font-medium text-lg">
+                        <span>Total XP:</span>
+                        <span className="text-primary">{result.totalXp.toLocaleString()} XP</span>
+                      </div>
+                      <div className="flex justify-between font-medium">
+                        <span>Base XP Per Character:</span>
+                        <span>{result.xpPerCharacter.toLocaleString()} XP</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xl">Per Character XP</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {result.characterXp.map((charXp) => {
+                        const character = characters.find(c => c.id === charXp.characterId);
+                        return (
+                          <div key={charXp.characterId} className="border rounded-lg p-3">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="font-medium">Character {charXp.characterId}</span>
+                              <Badge>
+                                {character && formatHitDice(character.hitDice, character.modifier)}
+                              </Badge>
+                            </div>
+                            <div className="space-y-1 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Effective HD:</span>
+                                <span>{charXp.effectiveHitDice.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Adjustment Factor:</span>
+                                <span>{charXp.adjustmentFactor.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between font-medium">
+                                <span>Adjusted XP:</span>
+                                <span className="text-primary">{charXp.adjustedXp.toLocaleString()} XP</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+            </div>
+          )}
+        </CardContent>
+        
+        <CardFooter className="flex flex-col items-start">
+          <p className="text-sm text-muted-foreground">
+            In oDND, experience points are calculated based on monster hit dice. 
+            Modifiers count as 0.25 of a hit die, and XP is reduced for high-level characters 
+            fighting lower-level monsters.
+          </p>
+        </CardFooter>
+      </Card>
     </div>
   );
 }
