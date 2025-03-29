@@ -42,6 +42,13 @@ type CalculationResult = {
     effectiveHitDice: number;
     adjustmentFactor: number;
     adjustedXp: number;
+    monsterContributions: {
+      monsterId: number;
+      monsterName: string;
+      baseXp: number;
+      adjustmentFactor: number;
+      adjustedXp: number;
+    }[];
   }[];
 };
 
@@ -193,15 +200,27 @@ export default function Home() {
       // Calculate adjustment factors for each monster type
       let totalAdjustedXp = 0;
       
-      newMonsters.forEach(monster => {
+      // Track contribution from each monster
+      const monsterContributions = newMonsters.map(monster => {
         // Calculate the XP contribution of this monster type
         const monsterXpContribution = monster.effectiveHitDice * monster.count * 100 / newCharacters.length;
         
         // Calculate the adjustment factor for this character vs this monster
         const adjustmentFactor = calculateAdjustmentFactor(char.effectiveHitDice, monster.effectiveHitDice);
         
-        // Add the adjusted XP from this monster type
-        totalAdjustedXp += monsterXpContribution * adjustmentFactor;
+        // Calculate adjusted XP from this monster
+        const adjustedXpFromMonster = monsterXpContribution * adjustmentFactor;
+        
+        // Add to total
+        totalAdjustedXp += adjustedXpFromMonster;
+        
+        return {
+          monsterId: monster.id,
+          monsterName: monster.name,
+          baseXp: monsterXpContribution,
+          adjustmentFactor: adjustmentFactor,
+          adjustedXp: adjustedXpFromMonster
+        };
       });
       
       // Calculate the overall adjustment factor by comparing total adjusted XP to base share
@@ -211,9 +230,26 @@ export default function Home() {
         characterId: char.id,
         effectiveHitDice: char.effectiveHitDice,
         adjustmentFactor: overallAdjustmentFactor,
-        adjustedXp: totalAdjustedXp,
+        adjustedXp: Math.floor(totalAdjustedXp), // Round down to whole number
+        monsterContributions: monsterContributions
       };
     });
+    
+    // Find the lowest level character to give them the remainder XP
+    const lowestLevelCharIndex = characterXp.reduce(
+      (lowestIdx, curr, idx, arr) => 
+        curr.effectiveHitDice < arr[lowestIdx].effectiveHitDice ? idx : lowestIdx, 
+      0
+    );
+    
+    // Calculate total rounded XP and the remainder
+    const totalRoundedXp = characterXp.reduce((sum, char) => sum + char.adjustedXp, 0);
+    const remainder = totalXp - totalRoundedXp;
+    
+    // Give the remainder to the lowest level character
+    if (remainder > 0 && characterXp.length > 0) {
+      characterXp[lowestLevelCharIndex].adjustedXp += remainder;
+    }
     
     // Set state with all calculated values
     setCharacters(newCharacters);
@@ -705,7 +741,7 @@ export default function Home() {
                       </div>
                       <div className="flex justify-between font-medium">
                         <span>Base XP Per Character:</span>
-                        <span>{result.xpPerCharacter.toLocaleString()} XP</span>
+                        <span>{Math.round(result.xpPerCharacter).toLocaleString()} XP</span>
                       </div>
                     </div>
                   </CardContent>
@@ -729,19 +765,57 @@ export default function Home() {
                                 {character && formatHitDice(character.hitDice, character.modifier)}
                               </Badge>
                             </div>
-                            <div className="space-y-1 text-sm">
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">Effective HD:</span>
-                                <span>{charXp.effectiveHitDice.toFixed(2)}</span>
+                            <div className="space-y-4 text-sm">
+                              <div className="space-y-1">
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Effective HD:</span>
+                                  <span>{charXp.effectiveHitDice.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Adjustment Factor:</span>
+                                  <span>{charXp.adjustmentFactor.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between font-medium text-base">
+                                  <span>Adjusted XP:</span>
+                                  <span className="text-primary">{charXp.adjustedXp.toLocaleString()} XP</span>
+                                </div>
                               </div>
-                              <div className="flex justify-between">
-                                <span className="text-muted-foreground">Adjustment Factor:</span>
-                                <span>{charXp.adjustmentFactor.toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between font-medium">
-                                <span>Adjusted XP:</span>
-                                <span className="text-primary">{charXp.adjustedXp.toLocaleString()} XP</span>
-                              </div>
+                              
+                              {/* Monster breakdown section */}
+                              {charXp.monsterContributions && (
+                                <div className="border-t pt-2 mt-2">
+                                  <div className="font-medium mb-1">XP Breakdown by Monster</div>
+                                  <div className="space-y-2">
+                                    {charXp.monsterContributions.map((contribution) => {
+                                      const monster = monsters.find(m => m.id === contribution.monsterId);
+                                      return (
+                                        <div key={contribution.monsterId} className="bg-secondary/30 p-2 rounded-sm">
+                                          <div className="flex justify-between items-center text-xs">
+                                            <span className="font-medium">{contribution.monsterName}</span>
+                                            <Badge variant="outline" className="text-xs">
+                                              {monster && formatHitDice(monster.hitDice, monster.modifier)} × {monster?.count || 0}
+                                            </Badge>
+                                          </div>
+                                          <div className="mt-1 space-y-0.5">
+                                            <div className="flex justify-between text-xs">
+                                              <span className="text-muted-foreground">Base XP:</span>
+                                              <span>{Math.round(contribution.baseXp).toLocaleString()} XP</span>
+                                            </div>
+                                            <div className="flex justify-between text-xs">
+                                              <span className="text-muted-foreground">Adjustment:</span>
+                                              <span>{contribution.adjustmentFactor.toFixed(2)}</span>
+                                            </div>
+                                            <div className="flex justify-between text-xs font-medium">
+                                              <span>Adj. XP:</span>
+                                              <span>{Math.round(contribution.adjustedXp).toLocaleString()} XP</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -758,7 +832,8 @@ export default function Home() {
           <p className="text-sm text-muted-foreground">
             In oDND, experience points are calculated based on monster hit dice. 
             Modifiers count as 0.25 of a hit die, and XP is reduced for high-level characters 
-            fighting lower-level monsters.
+            fighting lower-level monsters. XP is rounded to whole numbers, with any remainder 
+            given to the lowest-level character in the party.
           </p>
         </CardFooter>
       </Card>
