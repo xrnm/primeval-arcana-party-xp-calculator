@@ -208,8 +208,8 @@ export default function Home() {
         // Calculate the adjustment factor for this character vs this monster
         const adjustmentFactor = calculateAdjustmentFactor(char.effectiveHitDice, monster.effectiveHitDice);
         
-        // Calculate adjusted XP from this monster
-        const adjustedXpFromMonster = monsterXpContribution * adjustmentFactor;
+        // Calculate adjusted XP from this monster (never exceeding the base XP contribution)
+        const adjustedXpFromMonster = Math.min(monsterXpContribution, monsterXpContribution * adjustmentFactor);
         
         // Add to total
         totalAdjustedXp += adjustedXpFromMonster;
