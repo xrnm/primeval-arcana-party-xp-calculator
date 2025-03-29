@@ -15,6 +15,7 @@ import { Trash, Plus, Calculator, Save, List, RotateCcw, X } from "lucide-react"
 // Types for our application
 type Character = {
   id: number;
+  name: string;
   hitDice: number;
   modifier: number;
   effectiveHitDice: number;
@@ -22,6 +23,7 @@ type Character = {
 
 type Monster = {
   id: number;
+  name: string;
   hitDice: number;
   modifier: number;
   count: number;
@@ -53,11 +55,13 @@ type SavedCalculation = {
 
 // Schemas for form validation
 const characterSchema = z.object({
+  name: z.string().optional(),
   hitDice: z.number().min(1, "Hit dice must be at least 1"),
   modifier: z.number(),
 });
 
 const monsterSchema = z.object({
+  name: z.string().optional(),
   hitDice: z.number().min(1, "Hit dice must be at least 1"),
   modifier: z.number(),
   count: z.number().min(1, "Count must be at least 1"),
@@ -127,8 +131,8 @@ export default function Home() {
   const form = useForm<z.infer<typeof calculatorSchema>>({
     resolver: zodResolver(calculatorSchema),
     defaultValues: {
-      characters: [{ hitDice: 1, modifier: 0 }],
-      monsters: [{ hitDice: 1, modifier: 0, count: 1 }],
+      characters: [{ name: "", hitDice: 1, modifier: 0 }],
+      monsters: [{ name: "", hitDice: 1, modifier: 0, count: 1 }],
     },
   });
 
@@ -143,6 +147,7 @@ export default function Home() {
       const effectiveHD = calculateEffectiveHitDice(char.hitDice, char.modifier);
       return {
         id: index + 1,
+        name: char.name || `Character ${index + 1}`,
         hitDice: char.hitDice,
         modifier: char.modifier,
         effectiveHitDice: effectiveHD,
@@ -154,6 +159,7 @@ export default function Home() {
       const effectiveHD = calculateEffectiveHitDice(monster.hitDice, monster.modifier);
       return {
         id: index + 1,
+        name: monster.name || `Monster ${index + 1}`,
         hitDice: monster.hitDice,
         modifier: monster.modifier,
         count: monster.count,
@@ -231,7 +237,7 @@ export default function Home() {
 
   const addCharacter = () => {
     const characters = form.getValues("characters");
-    form.setValue("characters", [...characters, { hitDice: 1, modifier: 0 }]);
+    form.setValue("characters", [...characters, { name: "", hitDice: 1, modifier: 0 }]);
   };
 
   const removeCharacter = (index: number) => {
@@ -246,7 +252,7 @@ export default function Home() {
 
   const addMonster = () => {
     const monsters = form.getValues("monsters");
-    form.setValue("monsters", [...monsters, { hitDice: 1, modifier: 0, count: 1 }]);
+    form.setValue("monsters", [...monsters, { name: "", hitDice: 1, modifier: 0, count: 1 }]);
   };
 
   const removeMonster = (index: number) => {
@@ -261,8 +267,8 @@ export default function Home() {
 
   const resetForm = () => {
     form.reset({
-      characters: [{ hitDice: 1, modifier: 0 }],
-      monsters: [{ hitDice: 1, modifier: 0, count: 1 }],
+      characters: [{ name: "", hitDice: 1, modifier: 0 }],
+      monsters: [{ name: "", hitDice: 1, modifier: 0, count: 1 }],
     });
     setCharacters([]);
     setMonsters([]);
@@ -305,11 +311,13 @@ export default function Home() {
   const loadCalculation = (savedCalc: SavedCalculation) => {
     // Convert saved data to form values
     const characterFormValues = savedCalc.characters.map((char) => ({
+      name: char.name,
       hitDice: char.hitDice,
       modifier: char.modifier,
     }));
 
     const monsterFormValues = savedCalc.monsters.map((monster) => ({
+      name: monster.name,
       hitDice: monster.hitDice,
       modifier: monster.modifier,
       count: monster.count,
@@ -397,7 +405,14 @@ export default function Home() {
                           <div>
                             <p className="font-medium">{format(calc.date, "PPp")}</p>
                             <p className="text-sm text-muted-foreground">
-                              {calc.characters.length} characters vs. {calc.monsters.reduce((sum, m) => sum + m.count, 0)} monsters
+                              {calc.characters.length} characters 
+                              {calc.characters.some(c => c.name) ? 
+                                ` (${calc.characters.filter(c => c.name).map(c => c.name).join(", ")})` : 
+                                ""} 
+                              vs. {calc.monsters.reduce((sum, m) => sum + m.count, 0)} monsters
+                              {calc.monsters.some(m => m.name) ? 
+                                ` (${calc.monsters.filter(m => m.name).map(m => m.name).join(", ")})` : 
+                                ""}
                             </p>
                             <p className="text-sm font-medium">
                               Total: {calc.result.totalXp.toLocaleString()} XP
@@ -439,7 +454,25 @@ export default function Home() {
                     {form.watch("characters").map((character, index) => (
                       <Card key={index}>
                         <CardContent className="p-4">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`characters.${index}.name`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Name (Optional)</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="text"
+                                      placeholder={`Character ${index + 1}`}
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
                             <FormField
                               control={form.control}
                               name={`characters.${index}.hitDice`}
@@ -518,7 +551,25 @@ export default function Home() {
                     {form.watch("monsters").map((monster, index) => (
                       <Card key={index}>
                         <CardContent className="p-4">
-                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <FormField
+                              control={form.control}
+                              name={`monsters.${index}.name`}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Name (Optional)</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="text"
+                                      placeholder={`Monster ${index + 1}`}
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
                             <FormField
                               control={form.control}
                               name={`monsters.${index}.hitDice`}
@@ -671,7 +722,9 @@ export default function Home() {
                         return (
                           <div key={charXp.characterId} className="border rounded-lg p-3">
                             <div className="flex justify-between items-center mb-2">
-                              <span className="font-medium">Character {charXp.characterId}</span>
+                              <span className="font-medium">
+                                {character && character.name ? character.name : `Character ${charXp.characterId}`}
+                              </span>
                               <Badge>
                                 {character && formatHitDice(character.hitDice, character.modifier)}
                               </Badge>
