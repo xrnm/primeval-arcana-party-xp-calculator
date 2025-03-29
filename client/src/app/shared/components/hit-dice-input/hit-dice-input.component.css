@@ -1,0 +1,10 @@
+.hit-dice-input {
+  margin-bottom: 15px;
+}
+
+.effective-hd {
+  margin-top: 5px;
+  font-size: 0.9rem;
+  color: #666;
+  font-style: italic;
+}

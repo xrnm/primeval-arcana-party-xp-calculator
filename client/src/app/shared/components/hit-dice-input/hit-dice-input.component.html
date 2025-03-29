@@ -1,0 +1,36 @@
+<div [formGroup]="form" class="hit-dice-input">
+  <h4 *ngIf="label">{{ label }}</h4>
+  <div class="row">
+    <div [ngClass]="showCount ? 'col-md-4' : 'col-md-6'">
+      <mat-form-field class="w-100">
+        <mat-label>Hit Dice</mat-label>
+        <input matInput type="number" formControlName="hitDice" min="1" max="20">
+        <mat-error *ngIf="form.get('hitDice')?.invalid">
+          Value must be between 1 and 20
+        </mat-error>
+      </mat-form-field>
+    </div>
+    <div [ngClass]="showCount ? 'col-md-4' : 'col-md-6'">
+      <mat-form-field class="w-100">
+        <mat-label>Modifier</mat-label>
+        <input matInput type="number" formControlName="modifier" min="-3" max="6">
+        <mat-error *ngIf="form.get('modifier')?.invalid">
+          Value must be between -3 and 6
+        </mat-error>
+      </mat-form-field>
+    </div>
+    <div class="col-md-4" *ngIf="showCount">
+      <mat-form-field class="w-100">
+        <mat-label>Count</mat-label>
+        <input matInput type="number" formControlName="count" min="1" max="100">
+        <mat-error *ngIf="form.get('count')?.invalid">
+          Value must be between 1 and 100
+        </mat-error>
+      </mat-form-field>
+    </div>
+  </div>
+  
+  <div *ngIf="form.valid" class="effective-hd">
+    Effective HD: {{ (form.get('hitDice')?.value || 0) + ((form.get('modifier')?.value || 0) * 0.25) | number:'1.2-2' }}
+  </div>
+</div>

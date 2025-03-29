@@ -1,0 +1,277 @@
+<div class="calculator-container">
+  <form [formGroup]="calculatorForm">
+    <div class="row">
+      <!-- Party Members Section -->
+      <div class="col-md-6">
+        <mat-card class="mb-4">
+          <mat-card-header>
+            <mat-card-title class="mb-0">
+              <div class="d-flex align-items-center">
+                <mat-icon>people</mat-icon>
+                <span class="ms-2">Party Members</span>
+              </div>
+            </mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <div formArrayName="characters">
+              <div *ngFor="let characterForm of charactersArray.controls; let i = index" class="character-item">
+                <div [formGroupName]="i" class="character-form">
+                  <div class="d-flex align-items-center mb-2">
+                    <h3 class="m-0">Character {{i+1}}</h3>
+                    <button mat-icon-button color="warn" type="button" (click)="removeCharacter(i)"
+                      [disabled]="charactersArray.length === 1" matTooltip="Remove Character">
+                      <mat-icon>delete</mat-icon>
+                    </button>
+                  </div>
+                  
+                  <div class="row">
+                    <div class="col-md-6">
+                      <mat-form-field class="w-100">
+                        <mat-label>Hit Dice</mat-label>
+                        <input matInput type="number" formControlName="hitDice" min="1" max="20">
+                        <mat-error *ngIf="characterForm.get('hitDice')?.invalid">
+                          Value must be between 1 and 20
+                        </mat-error>
+                      </mat-form-field>
+                    </div>
+                    <div class="col-md-6">
+                      <mat-form-field class="w-100">
+                        <mat-label>Modifier</mat-label>
+                        <input matInput type="number" formControlName="modifier" min="-3" max="6">
+                        <mat-error *ngIf="characterForm.get('modifier')?.invalid">
+                          Value must be between -3 and 6
+                        </mat-error>
+                      </mat-form-field>
+                    </div>
+                  </div>
+                  
+                  <div *ngIf="characterForm.valid" class="effective-hd">
+                    Effective HD: {{ xpCalculatorService.calculateEffectiveHitDice(
+                      characterForm.get('hitDice')?.value, 
+                      characterForm.get('modifier')?.value
+                    ) | number:'1.2-2' }}
+                  </div>
+                </div>
+                <mat-divider *ngIf="i < charactersArray.length - 1" class="my-3"></mat-divider>
+              </div>
+            </div>
+            
+            <div class="text-center mt-3">
+              <button mat-raised-button color="primary" type="button" (click)="addCharacter()">
+                <mat-icon>add</mat-icon> Add Character
+              </button>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+      
+      <!-- Monsters Section -->
+      <div class="col-md-6">
+        <mat-card class="mb-4">
+          <mat-card-header>
+            <mat-card-title class="mb-0">
+              <div class="d-flex align-items-center">
+                <mat-icon>pest_control</mat-icon>
+                <span class="ms-2">Defeated Monsters</span>
+              </div>
+            </mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <div formArrayName="monsters">
+              <div *ngFor="let monsterForm of monstersArray.controls; let i = index" class="monster-item">
+                <div [formGroupName]="i" class="monster-form">
+                  <div class="d-flex align-items-center mb-2">
+                    <h3 class="m-0">Monster Type {{i+1}}</h3>
+                    <button mat-icon-button color="warn" type="button" (click)="removeMonster(i)"
+                      [disabled]="monstersArray.length === 1" matTooltip="Remove Monster">
+                      <mat-icon>delete</mat-icon>
+                    </button>
+                  </div>
+                  
+                  <div class="row">
+                    <div class="col-md-4">
+                      <mat-form-field class="w-100">
+                        <mat-label>Hit Dice</mat-label>
+                        <input matInput type="number" formControlName="hitDice" min="1" max="20">
+                        <mat-error *ngIf="monsterForm.get('hitDice')?.invalid">
+                          Value must be between 1 and 20
+                        </mat-error>
+                      </mat-form-field>
+                    </div>
+                    <div class="col-md-4">
+                      <mat-form-field class="w-100">
+                        <mat-label>Modifier</mat-label>
+                        <input matInput type="number" formControlName="modifier" min="-3" max="6">
+                        <mat-error *ngIf="monsterForm.get('modifier')?.invalid">
+                          Value must be between -3 and 6
+                        </mat-error>
+                      </mat-form-field>
+                    </div>
+                    <div class="col-md-4">
+                      <mat-form-field class="w-100">
+                        <mat-label>Count</mat-label>
+                        <input matInput type="number" formControlName="count" min="1" max="100">
+                        <mat-error *ngIf="monsterForm.get('count')?.invalid">
+                          Value must be between 1 and 100
+                        </mat-error>
+                      </mat-form-field>
+                    </div>
+                  </div>
+                  
+                  <div *ngIf="monsterForm.valid" class="effective-hd">
+                    Effective HD per monster: {{ xpCalculatorService.calculateEffectiveHitDice(
+                      monsterForm.get('hitDice')?.value, 
+                      monsterForm.get('modifier')?.value
+                    ) | number:'1.2-2' }}
+                  </div>
+                </div>
+                <mat-divider *ngIf="i < monstersArray.length - 1" class="my-3"></mat-divider>
+              </div>
+            </div>
+            
+            <div class="text-center mt-3">
+              <button mat-raised-button color="primary" type="button" (click)="addMonster()">
+                <mat-icon>add</mat-icon> Add Monster Type
+              </button>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </div>
+    
+    <div class="row mt-4 mb-4">
+      <div class="col-12 text-center">
+        <button mat-raised-button color="accent" (click)="calculateXp()" 
+                [disabled]="calculatorForm.invalid" class="calculate-btn">
+          <mat-icon>calculate</mat-icon> Calculate XP
+        </button>
+        <button mat-raised-button color="warn" (click)="resetForm()" class="ms-3">
+          <mat-icon>refresh</mat-icon> Reset
+        </button>
+      </div>
+    </div>
+  </form>
+  
+  <!-- Results Section -->
+  <div *ngIf="result" id="results" class="results-section">
+    <mat-card>
+      <mat-card-header>
+        <mat-card-title>
+          <div class="d-flex align-items-center">
+            <mat-icon>emoji_events</mat-icon>
+            <span class="ms-2">XP Results</span>
+          </div>
+        </mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="results-grid">
+          <div class="result-item">
+            <h3>Total Party Hit Dice:</h3>
+            <p>{{ result.totalPartyHitDice | number:'1.2-2' }}</p>
+          </div>
+          <div class="result-item">
+            <h3>Total Monster Hit Dice:</h3>
+            <p>{{ result.totalMonsterHitDice | number:'1.2-2' }}</p>
+          </div>
+          <div class="result-item">
+            <h3>Average Party Level:</h3>
+            <p>{{ result.averagePartyLevel | number:'1.2-2' }}</p>
+          </div>
+          <div class="result-item">
+            <h3>Level Adjustment Factor:</h3>
+            <p>{{ result.adjustmentFactor | number:'1.2-2' }}</p>
+          </div>
+          <div class="result-item">
+            <h3>Total XP Earned:</h3>
+            <p class="highlight">{{ result.totalXp | number }}</p>
+          </div>
+          <div class="result-item">
+            <h3>XP Per Character:</h3>
+            <p class="highlight">{{ result.xpPerCharacter | number }}</p>
+          </div>
+        </div>
+        
+        <div class="text-center mt-4">
+          <button mat-raised-button color="primary" (click)="saveCalculation()">
+            <mat-icon>save</mat-icon> Save Calculation
+          </button>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+  
+  <!-- Saved Calculations Section -->
+  <div class="saved-calculations mt-4">
+    <button mat-button color="primary" (click)="toggleSavedCalculations()">
+      <mat-icon>{{ showSavedCalculations ? 'expand_less' : 'expand_more' }}</mat-icon>
+      {{ showSavedCalculations ? 'Hide' : 'Show' }} Saved Calculations
+    </button>
+    
+    <div *ngIf="showSavedCalculations">
+      <mat-card *ngIf="savedCalculations.length === 0" class="mt-3">
+        <mat-card-content class="text-center py-4">
+          <mat-icon class="large-icon">error</mat-icon>
+          <p>No saved calculations found</p>
+        </mat-card-content>
+      </mat-card>
+      
+      <mat-accordion *ngIf="savedCalculations.length > 0" class="mt-3">
+        <mat-expansion-panel *ngFor="let calc of savedCalculations">
+          <mat-expansion-panel-header>
+            <mat-panel-title>
+              Calculation from {{ formatDate(calc.date) }}
+            </mat-panel-title>
+            <mat-panel-description>
+              {{ calc.characters.length }} characters | {{ calc.monsters.length }} monster types
+            </mat-panel-description>
+          </mat-expansion-panel-header>
+          
+          <div class="saved-calc-details">
+            <div class="row">
+              <div class="col-md-6">
+                <h4>Party:</h4>
+                <ul>
+                  <li *ngFor="let char of calc.characters">
+                    HD: {{ char.hitDice }}{{ char.modifier >= 0 ? '+' : '' }}{{ char.modifier }} 
+                    (Effective: {{ char.effectiveHitDice | number:'1.2-2' }})
+                  </li>
+                </ul>
+              </div>
+              <div class="col-md-6">
+                <h4>Monsters:</h4>
+                <ul>
+                  <li *ngFor="let monster of calc.monsters">
+                    {{ monster.count }}× HD: {{ monster.hitDice }}{{ monster.modifier >= 0 ? '+' : '' }}{{ monster.modifier }} 
+                    (Effective: {{ monster.effectiveHitDice | number:'1.2-2' }})
+                  </li>
+                </ul>
+              </div>
+            </div>
+            
+            <div class="result-summary">
+              <div class="row">
+                <div class="col-md-6">
+                  <p><strong>Total XP:</strong> {{ calc.result.totalXp | number }}</p>
+                  <p><strong>XP Per Character:</strong> {{ calc.result.xpPerCharacter | number }}</p>
+                </div>
+                <div class="col-md-6">
+                  <p><strong>Average Party Level:</strong> {{ calc.result.averagePartyLevel | number:'1.2-2' }}</p>
+                  <p><strong>Adjustment Factor:</strong> {{ calc.result.adjustmentFactor | number:'1.2-2' }}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div class="text-center mt-3">
+              <button mat-raised-button color="primary" (click)="loadCalculation(calc)">
+                <mat-icon>refresh</mat-icon> Load This Calculation
+              </button>
+              <button mat-raised-button color="warn" class="ms-2" (click)="deleteCalculation(calc.id, $event)">
+                <mat-icon>delete</mat-icon> Delete
+              </button>
+            </div>
+          </div>
+        </mat-expansion-panel>
+      </mat-accordion>
+    </div>
+  </div>
+</div>
