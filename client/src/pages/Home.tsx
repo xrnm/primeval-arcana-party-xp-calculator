@@ -188,112 +188,53 @@ export default function Home() {
       ? totalMonsterHitDice / totalMonsterCount 
       : 0;
     
-    // Calculate total XP
-    const totalXp = calculateTotalXp(newMonsters);
-    const xpPerCharacter = totalXp / newCharacters.length;
-    
-    // Calculate the overall adjustment factor
+    // Calculate overall adjustment factor (for display only)
     const overallAdjustmentFactor = calculateAdjustmentFactor(averagePartyLevel, averageMonsterLevel);
     
-    // Calculate per-character adjusted XP
+    // Following the exact 4 steps as instructed:
     const characterXp = newCharacters.map(char => {
-      // Calculate adjustment factors for each monster type
-      let totalAdjustedXp = 0;
-      
-      // Track contribution from each monster
+      // Process each monster's contribution to this character
       const monsterContributions = newMonsters.map(monster => {
-        // Calculate the XP contribution of this monster type
-        const monsterXpContribution = monster.effectiveHitDice * monster.count * 100 / newCharacters.length;
+        // Step 1: Calculate total XP for this monster
+        const monsterTotalXp = monster.effectiveHitDice * monster.count * 100;
         
-        // Calculate the adjustment factor for this character vs this monster
+        // Step 2: Divide by number of party members with rounding
+        const perCharacterShare = Math.floor(monsterTotalXp / newCharacters.length);
+        
+        // Step 3: Calculate adjustment factor for this character vs this monster
         const adjustmentFactor = calculateAdjustmentFactor(char.effectiveHitDice, monster.effectiveHitDice);
         
-        // Calculate adjusted XP from this monster (never exceeding the base XP contribution)
-        const adjustedXpFromMonster = Math.min(monsterXpContribution, monsterXpContribution * adjustmentFactor);
-        
-        // Add to total
-        totalAdjustedXp += adjustedXpFromMonster;
+        // Step 4: Calculate the final adjusted XP for this monster
+        const adjustedXp = Math.floor(perCharacterShare * adjustmentFactor);
         
         return {
           monsterId: monster.id,
           monsterName: monster.name,
-          baseXp: monsterXpContribution,
+          baseXp: perCharacterShare,
           adjustmentFactor: adjustmentFactor,
-          adjustedXp: adjustedXpFromMonster
+          adjustedXp: adjustedXp
         };
       });
       
-      // Calculate the overall adjustment factor comparing total adjusted XP to base share
-      const overallAdjustmentFactor = Math.min(1.0, totalAdjustedXp / xpPerCharacter);
+      // Sum up all monster contributions for this character
+      const totalCharacterXp = monsterContributions.reduce((sum, contrib) => sum + contrib.adjustedXp, 0);
       
-      // Apply proper bounds to adjusted XP (can't exceed character's share of total XP)
-      const finalAdjustedXp = Math.min(Math.floor(totalAdjustedXp), Math.floor(xpPerCharacter));
-      
-      // Update the monster contributions to match the final adjusted XP total
-      let totalMonsterContributions = 0;
-      const adjustedMonsterContributions = monsterContributions.map(contribution => {
-        // Calculate a proportionally adjusted XP if we needed to cap the total
-        const adjustedXpFromMonster = finalAdjustedXp === Math.floor(totalAdjustedXp) 
-          ? Math.floor(contribution.adjustedXp) // Use original if no adjustment needed
-          : Math.floor(contribution.adjustedXp * (finalAdjustedXp / Math.floor(totalAdjustedXp))); // Scale down proportionally
-        
-        totalMonsterContributions += adjustedXpFromMonster;
-        
-        return {
-          ...contribution,
-          adjustedXp: adjustedXpFromMonster
-        };
-      });
-      
-      // We may have lost a few XP due to rounding each monster contribution
-      // Add any missing XP to ensure monster contributions sum to final adjusted XP
-      const monsterRoundingDiff = finalAdjustedXp - totalMonsterContributions;
-      
-      if (monsterRoundingDiff > 0 && adjustedMonsterContributions.length > 0) {
-        // Find the biggest monster contribution to add the rounding difference to
-        const biggestMonsterIndex = adjustedMonsterContributions.reduce(
-          (biggestIdx, curr, idx, arr) => 
-            curr.adjustedXp > arr[biggestIdx].adjustedXp ? idx : biggestIdx, 
-          0
-        );
-        adjustedMonsterContributions[biggestMonsterIndex].adjustedXp += monsterRoundingDiff;
-      }
+      // Calculate the overall adjustment factor across all monsters for this character
+      const totalBaseXp = monsterContributions.reduce((sum, contrib) => sum + contrib.baseXp, 0);
+      const charAdjustmentFactor = totalBaseXp > 0 ? totalCharacterXp / totalBaseXp : 0;
       
       return {
         characterId: char.id,
         effectiveHitDice: char.effectiveHitDice,
-        adjustmentFactor: overallAdjustmentFactor,
-        adjustedXp: finalAdjustedXp, // Adjusted and rounded down to whole number
-        monsterContributions: adjustedMonsterContributions
+        adjustmentFactor: charAdjustmentFactor,
+        adjustedXp: totalCharacterXp,
+        monsterContributions: monsterContributions
       };
     });
     
-    // Find the lowest level character to give them the remainder XP
-    const lowestLevelCharIndex = characterXp.reduce(
-      (lowestIdx, curr, idx, arr) => 
-        curr.effectiveHitDice < arr[lowestIdx].effectiveHitDice ? idx : lowestIdx, 
-      0
-    );
-    
-    // Calculate total rounded XP and the remainder
-    const totalRoundedXp = characterXp.reduce((sum, char) => sum + char.adjustedXp, 0);
-    const remainder = totalXp - totalRoundedXp;
-    
-    // Give the remainder to the lowest level character
-    if (remainder > 0 && characterXp.length > 0) {
-      characterXp[lowestLevelCharIndex].adjustedXp += remainder;
-      
-      // If the lowest level character has monster contributions, add the remainder
-      // to their biggest monster contribution as well, to keep the breakdown consistent
-      if (characterXp[lowestLevelCharIndex].monsterContributions.length > 0) {
-        const biggestMonsterIndex = characterXp[lowestLevelCharIndex].monsterContributions.reduce(
-          (biggestIdx, curr, idx, arr) => 
-            curr.adjustedXp > arr[biggestIdx].adjustedXp ? idx : biggestIdx, 
-          0
-        );
-        characterXp[lowestLevelCharIndex].monsterContributions[biggestMonsterIndex].adjustedXp += remainder;
-      }
-    }
+    // Calculate total XP and per-character averages
+    const totalXp = characterXp.reduce((sum, char) => sum + char.adjustedXp, 0);
+    const xpPerCharacter = totalXp / newCharacters.length;
     
     // Set state with all calculated values
     setCharacters(newCharacters);
