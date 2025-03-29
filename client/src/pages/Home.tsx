@@ -783,7 +783,13 @@ export default function Home() {
                                           </div>
                                           <div className="mt-1 space-y-0.5">
                                             <div className="flex justify-between text-xs">
-                                              <span className="text-muted-foreground">Base XP:</span>
+                                              <span className="text-muted-foreground">Total Monster XP:</span>
+                                              <span>
+                                                {monster && (monster.effectiveHitDice * monster.count * 100).toLocaleString()} XP
+                                              </span>
+                                            </div>
+                                            <div className="flex justify-between text-xs">
+                                              <span className="text-muted-foreground">Character Share:</span>
                                               <span>{Math.round(contribution.baseXp).toLocaleString()} XP</span>
                                             </div>
                                             <div className="flex justify-between text-xs">
@@ -791,7 +797,7 @@ export default function Home() {
                                               <span>{contribution.adjustmentFactor.toFixed(2)}</span>
                                             </div>
                                             <div className="flex justify-between text-xs font-medium">
-                                              <span>Adj. XP:</span>
+                                              <span>Adjusted XP:</span>
                                               <span>{Math.round(contribution.adjustedXp).toLocaleString()} XP</span>
                                             </div>
                                           </div>
