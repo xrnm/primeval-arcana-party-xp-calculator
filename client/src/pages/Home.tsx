@@ -385,7 +385,7 @@ export default function Home() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-3xl">oDND XP Calculator</CardTitle>
+              <CardTitle className="text-3xl">Primeval Arcana Party XP Calculator</CardTitle>
               <CardDescription>Calculate experience points based on character and monster hit dice</CardDescription>
             </div>
             <div className="flex space-x-2">
@@ -712,14 +712,6 @@ export default function Home() {
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Total Monster Hit Dice:</span>
                         <span className="font-medium">{result.totalMonsterHitDice.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Average Party Level:</span>
-                        <span className="font-medium">{result.averagePartyLevel.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Overall Adjustment Factor:</span>
-                        <span className="font-medium">{result.adjustmentFactor.toFixed(2)}</span>
                       </div>
                       <Separator className="my-2" />
                       <div className="flex justify-between font-medium text-lg">
