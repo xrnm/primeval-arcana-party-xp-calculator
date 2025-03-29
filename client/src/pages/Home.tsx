@@ -224,13 +224,17 @@ export default function Home() {
       });
       
       // Calculate the overall adjustment factor by comparing total adjusted XP to base share
-      const overallAdjustmentFactor = totalAdjustedXp / xpPerCharacter;
+      // Also ensure the adjusted XP never exceeds the base XP per character
+      const overallAdjustmentFactor = Math.min(1.0, totalAdjustedXp / xpPerCharacter);
+      
+      // Apply the adjustment factor to ensure adjusted XP is at most the base XP per character
+      const finalAdjustedXp = Math.min(Math.floor(totalAdjustedXp), Math.floor(xpPerCharacter));
       
       return {
         characterId: char.id,
         effectiveHitDice: char.effectiveHitDice,
         adjustmentFactor: overallAdjustmentFactor,
-        adjustedXp: Math.floor(totalAdjustedXp), // Round down to whole number
+        adjustedXp: finalAdjustedXp, // Adjusted and rounded down to whole number
         monsterContributions: monsterContributions
       };
     });
