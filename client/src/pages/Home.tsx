@@ -223,19 +223,48 @@ export default function Home() {
         };
       });
       
-      // Calculate the overall adjustment factor by comparing total adjusted XP to base share
-      // Also ensure the adjusted XP never exceeds the base XP per character
+      // Calculate the overall adjustment factor comparing total adjusted XP to base share
       const overallAdjustmentFactor = Math.min(1.0, totalAdjustedXp / xpPerCharacter);
       
-      // Apply the adjustment factor to ensure adjusted XP is at most the base XP per character
+      // Apply proper bounds to adjusted XP (can't exceed character's share of total XP)
       const finalAdjustedXp = Math.min(Math.floor(totalAdjustedXp), Math.floor(xpPerCharacter));
+      
+      // Update the monster contributions to match the final adjusted XP total
+      let totalMonsterContributions = 0;
+      const adjustedMonsterContributions = monsterContributions.map(contribution => {
+        // Calculate a proportionally adjusted XP if we needed to cap the total
+        const adjustedXpFromMonster = finalAdjustedXp === Math.floor(totalAdjustedXp) 
+          ? Math.floor(contribution.adjustedXp) // Use original if no adjustment needed
+          : Math.floor(contribution.adjustedXp * (finalAdjustedXp / Math.floor(totalAdjustedXp))); // Scale down proportionally
+        
+        totalMonsterContributions += adjustedXpFromMonster;
+        
+        return {
+          ...contribution,
+          adjustedXp: adjustedXpFromMonster
+        };
+      });
+      
+      // We may have lost a few XP due to rounding each monster contribution
+      // Add any missing XP to ensure monster contributions sum to final adjusted XP
+      const monsterRoundingDiff = finalAdjustedXp - totalMonsterContributions;
+      
+      if (monsterRoundingDiff > 0 && adjustedMonsterContributions.length > 0) {
+        // Find the biggest monster contribution to add the rounding difference to
+        const biggestMonsterIndex = adjustedMonsterContributions.reduce(
+          (biggestIdx, curr, idx, arr) => 
+            curr.adjustedXp > arr[biggestIdx].adjustedXp ? idx : biggestIdx, 
+          0
+        );
+        adjustedMonsterContributions[biggestMonsterIndex].adjustedXp += monsterRoundingDiff;
+      }
       
       return {
         characterId: char.id,
         effectiveHitDice: char.effectiveHitDice,
         adjustmentFactor: overallAdjustmentFactor,
         adjustedXp: finalAdjustedXp, // Adjusted and rounded down to whole number
-        monsterContributions: monsterContributions
+        monsterContributions: adjustedMonsterContributions
       };
     });
     
@@ -253,6 +282,17 @@ export default function Home() {
     // Give the remainder to the lowest level character
     if (remainder > 0 && characterXp.length > 0) {
       characterXp[lowestLevelCharIndex].adjustedXp += remainder;
+      
+      // If the lowest level character has monster contributions, add the remainder
+      // to their biggest monster contribution as well, to keep the breakdown consistent
+      if (characterXp[lowestLevelCharIndex].monsterContributions.length > 0) {
+        const biggestMonsterIndex = characterXp[lowestLevelCharIndex].monsterContributions.reduce(
+          (biggestIdx, curr, idx, arr) => 
+            curr.adjustedXp > arr[biggestIdx].adjustedXp ? idx : biggestIdx, 
+          0
+        );
+        characterXp[lowestLevelCharIndex].monsterContributions[biggestMonsterIndex].adjustedXp += remainder;
+      }
     }
     
     // Set state with all calculated values
