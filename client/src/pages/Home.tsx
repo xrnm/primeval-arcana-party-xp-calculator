@@ -10,7 +10,7 @@ import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { format } from "date-fns";
 import { useToast } from "../hooks/use-toast";
-import { Trash, Plus, Calculator, Save, List, RotateCcw, X } from "lucide-react";
+import { Trash, Plus, Calculator, Save, List, RotateCcw, X, Copy, Check } from "lucide-react";
 
 // Types for our application
 type Character = {
@@ -115,6 +115,86 @@ export default function Home() {
   const [savedCalculations, setSavedCalculations] = useState<SavedCalculation[]>([]);
   const [showSaved, setShowSaved] = useState(false);
   const { toast } = useToast();
+  const [copying, setCopying] = useState(false);
+  
+  // Format the results with emojis for clipboard sharing
+  const formatResultsForClipboard = (): string => {
+    if (!result || characters.length === 0 || monsters.length === 0) return "";
+    
+    let formattedText = "# 🧙‍♂️ Primeval Arcana XP Calculator 🧙‍♂️\n\n";
+    
+    // Party and monster summary
+    formattedText += "## ⚔️ Encounter Summary ⚔️\n";
+    formattedText += `${characters.length} adventurers vs ${monsters.reduce((sum, m) => sum + m.count, 0)} monsters\n\n`;
+    
+    // Party details
+    formattedText += "### 👥 Party\n";
+    characters.forEach(char => {
+      formattedText += `- ${char.name} (${formatHitDice(char.hitDice, char.modifier)} HD)\n`;
+    });
+    formattedText += `Total Party HD: ${result.totalPartyHitDice.toFixed(2)}\n\n`;
+    
+    // Monster details
+    formattedText += "### 👹 Monsters\n";
+    monsters.forEach(monster => {
+      formattedText += `- ${monster.count}× ${monster.name} (${formatHitDice(monster.hitDice, monster.modifier)} HD)\n`;
+    });
+    formattedText += `Total Monster HD: ${result.totalMonsterHitDice.toFixed(2)}\n\n`;
+    
+    // XP Summary
+    formattedText += "## 💰 XP Summary 💰\n";
+    formattedText += `Total XP: ${result.totalXp.toLocaleString()} XP\n`;
+    formattedText += `Base XP Per Character: ${Math.round(result.xpPerCharacter).toLocaleString()} XP\n\n`;
+    
+    // Character XP Breakdown
+    formattedText += "## 📊 Character XP Breakdown 📊\n";
+    result.characterXp.forEach(charXp => {
+      const character = characters.find(c => c.id === charXp.characterId);
+      if (!character) return;
+      
+      formattedText += `### ${character.name} - ${Math.round(charXp.adjustedXp).toLocaleString()} XP 🎯\n`;
+      
+      // Monster contributions
+      charXp.monsterContributions.forEach(contrib => {
+        const monster = monsters.find(m => m.id === contrib.monsterId);
+        if (!monster) return;
+        
+        formattedText += `- ${monster.name}: ${Math.round(contrib.adjustedXp).toLocaleString()} XP`;
+        if (contrib.adjustmentFactor < 1.0) {
+          formattedText += ` (adjusted: ×${contrib.adjustmentFactor.toFixed(2)})`;
+        }
+        formattedText += "\n";
+      });
+      formattedText += "\n";
+    });
+    
+    return formattedText;
+  };
+  
+  // Copy results to clipboard
+  const copyToClipboard = async () => {
+    if (!result) return;
+    
+    try {
+      setCopying(true);
+      const text = formatResultsForClipboard();
+      await navigator.clipboard.writeText(text);
+      
+      toast({
+        title: "Copied to Clipboard",
+        description: "Results formatted with emojis for sharing",
+        variant: "success",
+      });
+    } catch (error) {
+      toast({
+        title: "Copy Failed",
+        description: "Could not copy results to clipboard",
+        variant: "destructive",
+      });
+    } finally {
+      setTimeout(() => setCopying(false), 2000);
+    }
+  };
   
   // Load saved calculations on component mount
   useEffect(() => {
@@ -696,7 +776,19 @@ export default function Home() {
           {/* Results Section */}
           {result && !showSaved && (
             <div className="mt-8">
-              <h3 className="text-lg font-semibold mb-4">Results</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Results</h3>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm"
+                  onClick={copyToClipboard}
+                  disabled={copying}
+                >
+                  {copying ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+                  {copying ? "Copied!" : "Copy to Clipboard"}
+                </Button>
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Card>
@@ -813,14 +905,7 @@ export default function Home() {
           )}
         </CardContent>
         
-        <CardFooter className="flex flex-col items-start">
-          <p className="text-sm text-muted-foreground">
-            In oDND, experience points are calculated based on monster hit dice. 
-            Modifiers count as 0.25 of a hit die, and XP is reduced for high-level characters 
-            fighting lower-level monsters. XP is rounded to whole numbers, with any remainder 
-            given to the lowest-level character in the party.
-          </p>
-        </CardFooter>
+        {/* Footer removed as requested */}
       </Card>
     </div>
   );
